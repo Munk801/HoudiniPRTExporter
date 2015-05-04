@@ -16,7 +16,7 @@
  * This file contains a Houdini plugin for exporting Houdini particles in PRT format.
  * The plugin supports Houdini 12 and Houdini 13.
  */
- 
+
 #define OPENEXR_DLL
 #include <deque>
 
@@ -36,7 +36,10 @@
 #include <SOP/SOP_Node.h>
 #include <OP/OP_Director.h>
 #include <UT/UT_SysSpecific.h>
+#include <GA/GA_IndexMap.h>
 #include <GEO/GEO_PrimPart.h>
+#include <GEO/GEO_Point.h>
+#include <GEO/GEO_Primitive.h>
 #include <HOM/HOM_Module.h>
 
 #include <set>
@@ -88,14 +91,14 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 
 	float posVal[3];
 	float lifeVal[2];
-	
+
 	ostream.bind( "Position", posVal, 3 );
 
 	//We handle the life channel in a special manner
 	GA_ROAttributeRef lifeAttrib = gdp->findPointAttribute( gdp->getStdAttributeName( GEO_ATTRIBUTE_LIFE ) );
 	if( lifeAttrib.isValid() ){
 		std::map<std::string,channel_type>::const_iterator it;
-		
+
 		it = desiredChannels.find( "Age" );
 		if( it != desiredChannels.end() && it->second.second == 1 )
 			ostream.bind( "Age", &lifeVal[0], 1, it->second.first );
@@ -108,14 +111,14 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 		else if( desiredChannels.empty() )
 			ostream.bind( "LifeSpan", &lifeVal[1], 1, prtio::data_types::type_float16 );
 	}
-	
+
 	//Using a deque to prevent the memory from moving around after adding the bound_attribute to the container.
 	std::deque< bound_attribute<int> > m_intAttrs;
 	std::deque< bound_attribute<float> > m_floatAttrs;
 	std::deque< bound_attribute<float> > m_vectorAttrs;
-	
+
 	for ( GA_AttributeDict::iterator it = gdp->getAttributes().getDict(GA_ATTRIB_POINT).begin(GA_SCOPE_PUBLIC); !it.atEnd(); ++it) {
-		
+
 		GA_Attribute *node = it.attrib();
 
 		std::string channelName = node->getName();
@@ -128,16 +131,16 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 				continue;
 			channelName = itResChannel->second;
 		}
-		
+
 		//Skip channels that aren't on the list.
 		std::map<std::string,channel_type>::const_iterator itChannel = desiredChannels.find( channelName );
 		bool channelIsDesired = ( itChannel != desiredChannels.end() );
-		
+
 		if( !desiredChannels.empty() && !channelIsDesired )
 			continue;
-			
+
 		prtio::data_types::enum_t type;
-		
+
 		//Only add valid channel names
 		if( detail::is_valid_channel_name( channelName.c_str() ) ) {
 			//I add the new item to the deque, THEN initialize it since a deque will not move the object around and this allows
@@ -187,7 +190,7 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 					if( itChannel->second.second != m_intAttrs.back().count )
 						continue;
 				}
-			
+
 				ostream.bind( channelName, m_intAttrs.back().data, m_intAttrs.back().count, type );
 				break;
 			default:
@@ -202,10 +205,12 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 		std::cerr << e.what() << std::endl;
 		throw HOM_OperationFailed( "Failed to open the file" );
 	}
-		
-	GA_IndexMap map = gdp->getPointMap();
+
+	const GA_IndexMap &map = gdp->getPointMap();
+	/* GA_IndexMap map = gdp->getPointMap(); */
 	UT_Vector3 p;
-	GEO_Point* pt;
+	GEO_Primitive* pt;
+	/* GEO_Point* pt; */
 	GA_Index indexSize = map.indexSize();
 	GA_Offset offset;
 
@@ -215,12 +220,12 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 		posVal[0] = p.x();
 		posVal[1] = p.y();
 		posVal[2] = -1 * p.z();
-		
-		//TODO: Remove the GEO_Point object that is now deprecated. 
-		pt = ( GEO_Point* )gdp->getGBPoint( offset );
-		
+
+		pt = ( GEO_Primitive* )gdp->getGEOPrimitive( offset );
+		/* pt = ( GEO_Point* )gdp->getGBPoint( offset ); */
+
 		//TODO: Convert this into appropriate time values. Is it seconds or frames or what?!
-		if( lifeAttrib.isValid() ) 
+		if( lifeAttrib.isValid() )
 			pt->get( lifeAttrib, lifeVal, 2 );
 
 		for( std::deque< bound_attribute<float> >::iterator it = m_floatAttrs.begin(), itEnd = m_floatAttrs.end(); it != itEnd; ++it )
@@ -228,7 +233,7 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 
 		for( std::deque< bound_attribute<float> >::iterator it = m_vectorAttrs.begin(), itEnd = m_vectorAttrs.end(); it != itEnd; ++it ) {
 			pt->get( it->attr, it->data, it->count );
-				
+
 			//TODO: Optionally transform into some consistent world space for PRT files.
 		}
 
@@ -237,7 +242,7 @@ static void exportParticlesDetail( const GU_Detail* gdp,
 
 		ostream.write_next_particle();
 	}
-	
+
 	ostream.close();
 }
 
@@ -248,14 +253,14 @@ static void exportParticles( const char *node_path, const char *filePath, const 
 		throw HOM_OperationFailed( "Internal error (could not find node)" );
 
 	float t = HOM().time();
-	
+
 	SOP_Node* sopNode = CAST_SOPNODE( op_node );
-	if( !sopNode ) 
+	if( !sopNode )
 		throw HOM_OperationFailed( "Internal error (not a valid node type)" );
-	
+
 	// Get our parent.
 	OP_Node *parent_node = sopNode->getParent();
-    
+
 	// Store the cooking status of our parent node.
 	bool was_cooking = false;
 	if( parent_node ){
@@ -273,7 +278,7 @@ static void exportParticles( const char *node_path, const char *filePath, const 
 		parent_node->setCookingRender( was_cooking );
 
 	// Check if we have a valid detail handle.
-	if( gd_handle.isNull() ) 
+	if( gd_handle.isNull() )
 		throw HOM_OperationFailed( "Internal error (not a valid detail handle)" );
 
 	// Lock it for reading.
@@ -281,7 +286,7 @@ static void exportParticles( const char *node_path, const char *filePath, const 
 
 	// Finally, get at the actual GU_Detail.
 	const GU_Detail* gdp = gd_lock.getGdp();
-	
+
 	exportParticlesDetail( gdp, filePath, channels );
 }
 
@@ -352,28 +357,28 @@ static PY_PyObject* exportParticles_Wrapper( PY_PyObject *self, PY_PyObject *arg
 	PY_AutoObject nodePath = PY_PyObject_CallMethod( node, "path", NULL );
 	if( !nodePath )
 		return NULL;
-	
+
 	std::map< std::string, channel_type > channels;
-	
+
 	if( channelList != NULL ){
 		try{
 			PY_Py_ssize_t listLen = PY_PySequence_Size( channelList );
-			
+
 			for( PY_Py_ssize_t i = 0; i < listLen; ++i ){
 				PY_PyObject* p = PY_PySequence_GetItem( channelList, i );
-				
+
 				char* curString = p ? PY_PyString_AsString( p ) : NULL;
 				if( !curString )
 					return NULL;
-				
+
 				const char *nameStart = curString, *nameEnd = curString;
 				while( *nameEnd != '\0' && std::isalnum( *nameEnd ) )
 					++nameEnd;
-				
+
 				std::string name( nameStart, nameEnd );
-				
+
 				channel_type type = prtio::data_types::parse_data_type( nameEnd );
-				
+
 				channels[name] = type;
 			}
 		}catch( const std::exception& e ){
@@ -402,7 +407,7 @@ static PY_PyObject* exportParticles_Wrapper( PY_PyObject *self, PY_PyObject *arg
 	}
 	catch ( HOM_Error &error )
 	{
-		cerr << error.instanceMessage() << std::endl;
+		std::cerr << error.instanceMessage() << std::endl;
 
 		// The exceptions used by the hou module are subclasses of HOM_Error
 		// (and can be found in HOM_Errors.h).  We use RTTI to get the class

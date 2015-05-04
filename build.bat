@@ -19,4 +19,4 @@
 @REM   	You will need to link with OpenEXR and Zlib Libaries. Normally, those libraries are included in your Houdini install directory.
 @REM	This build file assumes PRT-IO-Library is in the user's home directory and that %HFS% points to your Houdini install directory. Please modify this as needed.
 
-hcustom -I %userprofile%\PRT-IO-Library\ -I %HFS%\toolkit\include\OpenEXR\ -I %HFS%\toolkit\include\zlib -L %HFS%\custom\houdini\dsolib\ -l Half.lib exportPRT.cpp
+hcustom -I %userprofile%\PRT-IO-Library\ -I %HFS%\toolkit\include\OpenEXR\ -I %HFS%\toolkit\include\zlib -L %HFS%\custom\houdini\dsolib\ -l Half.lib -g exportPRT.cpp
